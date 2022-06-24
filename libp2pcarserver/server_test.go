@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -54,17 +54,14 @@ func TestSimpleTransfer(t *testing.T) {
 	require.NoError(t, from.Close())
 	// add the car file to the car store
 	require.NoError(t, cs.Create(rts[0], rts[0], func(bs bstore.Blockstore) error {
-		f, err := os.Open("../testdata/files/sample-v1.car")
-		if err != nil {
+		f, fErr := os.Open("../testdata/files/sample-v1.car")
+		if fErr != nil {
 			return err
 		}
-		if _, err := car.LoadCar(ctx, bs, f); err != nil {
-			return err
+		if _, lErr := car.LoadCar(ctx, bs, f); lErr != nil {
+			return lErr
 		}
-		if err := f.Close(); err != nil {
-			return err
-		}
-		return nil
+		return f.Close()
 	}))
 
 	rtbz := rts[0].Bytes()
@@ -82,12 +79,12 @@ func TestSimpleTransfer(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.CloseWrite())
 
-	resp, err := ioutil.ReadAll(s)
+	resp, err := io.ReadAll(s)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp)
 
 	// ensure contents match
-	fbz, err := ioutil.ReadFile("../testdata/files/sample-v1.car")
+	fbz, err := os.ReadFile("../testdata/files/sample-v1.car")
 	require.NoError(t, err)
 	require.EqualValues(t, fbz, resp)
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	address "github.com/filecoin-project/go-address"
 	"github.com/gorilla/mux"
@@ -29,7 +30,7 @@ func main() {
 		var err error
 		port, err = strconv.Atoi(portStr)
 		if err != nil {
-			panic(fmt.Errorf("Invalid PORT value '%s': %s", portStr, err.Error()))
+			panic(fmt.Errorf("invalid PORT value '%s': %s", portStr, err.Error()))
 		}
 	}
 
@@ -57,27 +58,30 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer nl.Close()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
 		if err := srv.Serve(nl); err != http.ErrServerClosed {
 			panic(err)
 		}
+		defer srv.Close()
+		wg.Done()
 	}()
 
 	port = nl.Addr().(*net.TCPAddr).Port
 	fmt.Println("Server listening on", nl.Addr())
 	fmt.Printf("WebUI: http://localhost:%d/webui\n", port)
-	for {
-
-	}
+	wg.Wait()
 }
 
 func webuiHandler(w http.ResponseWriter, r *http.Request) {
 	rootDir := "webui"
 	path := strings.TrimPrefix(r.URL.Path, "/")
 
-	_, err := resources.WebUI.Open(path)
-	if path == rootDir || os.IsNotExist(err) {
+	_, pathErr := resources.WebUI.Open(path)
+	if path == rootDir || os.IsNotExist(pathErr) {
 		// file does not exist, serve index.html
 		index, err := resources.WebUI.ReadFile(rootDir + "/index.html")
 		if err != nil {
@@ -86,10 +90,12 @@ func webuiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write(index)
+		if _, err := w.Write(index); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
-	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else if pathErr != nil {
+		http.Error(w, pathErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -101,6 +107,8 @@ func configHandler(conf []byte) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write(conf)
+		if _, err := w.Write(conf); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
